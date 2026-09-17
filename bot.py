@@ -180,7 +180,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📜 `/txs 地址` — 查询近期交易"
     )
     try:
-        with open("欢迎.png", "rb") as photo:
+        with open("welcome.png", "rb") as photo:
             await update.message.reply_photo(
                 photo=photo,
                 caption=caption,
