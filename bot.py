@@ -4,6 +4,7 @@ import time
 import logging
 import requests
 import threading
+import asyncio
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes
@@ -133,8 +134,7 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append(f"\n共 {len(addresses)} 个地址")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
-def monitor_loop(app):
-    import asyncio
+async def monitor_loop(app):
     logger.info("监控线程启动...")
     while True:
         try:
@@ -181,33 +181,29 @@ def monitor_loop(app):
 
                     for uid in user_ids:
                         try:
-                            asyncio.run_coroutine_threadsafe(
-                                app.bot.send_message(
-                                    chat_id=int(uid),
-                                    text=msg,
-                                    parse_mode="Markdown",
-                                    disable_web_page_preview=True
-                                ),
-                                app.loop
+                            await app.bot.send_message(
+                                chat_id=int(uid),
+                                text=msg,
+                                parse_mode="Markdown",
+                                disable_web_page_preview=True
                             )
                         except Exception as e:
                             logger.error(f"发送消息失败: {e}")
-                time.sleep(1)
+                await asyncio.sleep(1)
         except Exception as e:
             logger.error(f"监控循环异常: {e}")
-        time.sleep(CHECK_INTERVAL)
+        await asyncio.sleep(CHECK_INTERVAL)
+
+async def post_init(app):
+    asyncio.create_task(monitor_loop(app))
 
 def main():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("add", add_cmd))
     app.add_handler(CommandHandler("remove", remove_cmd))
     app.add_handler(CommandHandler("list", list_cmd))
-
-    monitor_thread = threading.Thread(target=monitor_loop, args=(app,), daemon=True)
-    monitor_thread.start()
-
     logger.info("Bot 启动中...")
     app.run_polling()
 
