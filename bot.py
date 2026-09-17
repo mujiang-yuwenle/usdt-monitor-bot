@@ -3,15 +3,10 @@ import json
 import time
 import logging
 import requests
-import threading
 import asyncio
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ============================================================
-# 配置
 # ============================================================
 TELEGRAM_TOKEN = "8169628717:AAHIag1akpSmkccr_BJyVz4Yp7L75YNZawo"
 ETHERSCAN_API_KEY = "FS2V6JFGBBQH4RAMCJXNI64YVR8HH3APHS"
@@ -27,7 +22,7 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             return json.load(f)
-    return {"users": {}, "seen_txs": {}}
+    return {"users": {}, "seen_txs": {}, "daily": {}}
 
 def save_data(data):
     with open(DATA_FILE, "w") as f:
@@ -64,7 +59,7 @@ def get_usdt_transactions(address):
         "address": address,
         "sort": "desc",
         "page": 1,
-        "offset": 10,
+        "offset": 20,
         "apikey": ETHERSCAN_API_KEY,
     }
     try:
@@ -75,6 +70,49 @@ def get_usdt_transactions(address):
     except Exception as e:
         logger.error(f"查询失败: {e}")
     return []
+
+def get_eth_balance(address):
+    """获取ETH余额（用于显示）"""
+    url = "https://api.etherscan.io/api"
+    params = {
+        "module": "account",
+        "action": "tokenbalance",
+        "contractaddress": USDT_CONTRACT,
+        "address": address,
+        "tag": "latest",
+        "apikey": ETHERSCAN_API_KEY,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        data = resp.json()
+        if data["status"] == "1":
+            return int(data["result"]) / 1_000_000
+    except:
+        pass
+    return 0
+
+def get_today_key():
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+def update_daily(data, address, amount, is_income):
+    today = get_today_key()
+    if "daily" not in data:
+        data["daily"] = {}
+    if address not in data["daily"]:
+        data["daily"][address] = {}
+    if today not in data["daily"][address]:
+        data["daily"][address][today] = {"income": 0, "outcome": 0}
+    if is_income:
+        data["daily"][address][today]["income"] += amount
+    else:
+        data["daily"][address][today]["outcome"] += amount
+
+def get_daily_stats(data, address):
+    today = get_today_key()
+    if "daily" not in data:
+        return 0, 0
+    stats = data.get("daily", {}).get(address, {}).get(today, {"income": 0, "outcome": 0})
+    return stats["income"], stats["outcome"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -134,6 +172,14 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append(f"\n共 {len(addresses)} 个地址")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+def format_amount(amount):
+    """格式化金额显示，如 2300点36"""
+    integer = int(amount)
+    decimal = round((amount - integer) * 100)
+    if decimal > 0:
+        return f"{integer:,}点{decimal:02d}"
+    return f"{integer:,}"
+
 async def monitor_loop(app):
     logger.info("监控线程启动...")
     while True:
@@ -149,34 +195,64 @@ async def monitor_loop(app):
             for address, user_ids in address_users.items():
                 txs = get_usdt_transactions(address)
                 seen = data["seen_txs"].get(address, [])
+
                 for tx in txs:
                     tx_hash = tx["hash"]
                     if tx_hash in seen:
                         continue
+
                     seen.append(tx_hash)
                     data["seen_txs"][address] = seen[-200:]
-                    save_data(data)
 
                     to_addr = tx["to"].lower()
                     from_addr = tx["from"].lower()
                     amount = int(tx["value"]) / 1_000_000
+                    is_income = (to_addr == address)
 
-                    if to_addr == address:
-                        direction = "📥 收入"
-                        counterpart_label = "付款方"
+                    # 更新今日统计
+                    update_daily(data, address, amount, is_income)
+                    save_data(data)
+
+                    # 获取余额
+                    usdt_balance = get_eth_balance(address)
+
+                    # 获取今日统计
+                    today_income, today_outcome = get_daily_stats(data, address)
+                    today_profit = today_income - today_outcome
+
+                    # 交易类型
+                    if is_income:
+                        tx_type = "收入 ⬇️"
+                        counterpart_label = "支付地址"
                         counterpart = from_addr
+                        amount_str = f"+ {format_amount(amount)} USDT"
                     else:
-                        direction = "📤 支出"
-                        counterpart_label = "收款方"
+                        tx_type = "转出 ⬆️"
+                        counterpart_label = "收款地址"
                         counterpart = to_addr
+                        amount_str = f"- {format_amount(amount)} USDT"
+
+                    # 短地址显示
+                    short_monitor = f"{address[:6]}...{address[-4:]}"
+                    short_counter = f"{counterpart[:6]}...{counterpart[-4:]}"
+                    short_hash = f"{tx_hash[:10]}...{tx_hash[-8:]}"
+                    tx_time = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(tx['timeStamp'])))
+
+                    # 绿色装饰
+                    decoration = "✅✅✅✅✅✅✅✅✅✅"
 
                     msg = (
-                        f"🔔 *ERC20 USDT 交易通知*\n\n"
-                        f"{direction}：`{amount:,.2f}` USDT\n"
-                        f"📍 监控地址：`{address}`\n"
-                        f"👤 {counterpart_label}：`{counterpart}`\n"
-                        f"🔗 [查看交易](https://etherscan.io/tx/{tx_hash})\n"
-                        f"⏰ 时间：{time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(tx['timeStamp'])))}"
+                        f"交易金额：{amount_str}\n"
+                        f"交易类型：{tx_type}\n"
+                        f"收款地址：`{address}`\n"
+                        f"{counterpart_label}：`{counterpart}`\n"
+                        f"交易哈希：`{short_hash}`\n"
+                        f"USDT余额：{format_amount(usdt_balance)}\n"
+                        f"转账时间：{tx_time}\n"
+                        f"{decoration}\n"
+                        f"今日收入(USDT)：{format_amount(today_income)}\n"
+                        f"今日支出(USDT)：{format_amount(today_outcome)}\n"
+                        f"今日利润(USDT)：{format_amount(today_profit)}"
                     )
 
                     for uid in user_ids:
@@ -189,9 +265,12 @@ async def monitor_loop(app):
                             )
                         except Exception as e:
                             logger.error(f"发送消息失败: {e}")
+
                 await asyncio.sleep(1)
+
         except Exception as e:
             logger.error(f"监控循环异常: {e}")
+
         await asyncio.sleep(CHECK_INTERVAL)
 
 async def post_init(app):
