@@ -169,7 +169,7 @@ async def send_list(message, user_id):
 # 命令处理
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
+    caption = (
         "👋 *欢迎使用 ERC20 USDT 钱包监控Bot！*\n\n"
         "使用下方菜单按钮操作，或直接发送命令：\n\n"
         "➕ `/add 地址 备注` — 添加监控地址\n"
@@ -179,7 +179,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💰 `/balance 地址` — 查询余额\n"
         "📜 `/txs 地址` — 查询近期交易"
     )
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=MAIN_KEYBOARD)
+    try:
+        with open("欢迎.png", "rb") as photo:
+            await update.message.reply_photo(
+                photo=photo,
+                caption=caption,
+                parse_mode="Markdown",
+                reply_markup=MAIN_KEYBOARD
+            )
+    except Exception:
+        await update.message.reply_text(caption, parse_mode="Markdown", reply_markup=MAIN_KEYBOARD)
 
 async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
