@@ -60,8 +60,9 @@ def rename_address(data, user_id, address, label):
     return False
 
 def get_usdt_transactions(address, offset=10):
-    url = "https://api.etherscan.io/api"
+    url = "https://api.etherscan.io/v2/api"
     params = {
+        "chainid": 1,
         "module": "account",
         "action": "tokentx",
         "contractaddress": USDT_CONTRACT,
@@ -81,8 +82,9 @@ def get_usdt_transactions(address, offset=10):
     return []
 
 def get_usdt_balance(address):
-    url = "https://api.etherscan.io/api"
+    url = "https://api.etherscan.io/v2/api"
     params = {
+        "chainid": 1,
         "module": "account",
         "action": "tokenbalance",
         "contractaddress": USDT_CONTRACT,
