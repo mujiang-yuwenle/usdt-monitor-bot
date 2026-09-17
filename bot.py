@@ -26,7 +26,7 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
         [KeyboardButton("✏️ 修改备注"), KeyboardButton("📜 近期交易")],
     ],
     resize_keyboard=True,
-    persistent=True
+    is_persistent=True
 )
 
 def load_data():
